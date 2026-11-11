@@ -1,0 +1,17 @@
+From: OpenWrt R18 port
+Subject: MIPS: econet: select UHI_BOOT
+
+get_fdt() already accepts a DTB passed via the UHI convention
+(a0 = -2, a1 = fdt). Selecting UHI_BOOT makes kexec hand the DTB to the
+new kernel that way (kexec --dtb=...), instead of argc/argv only.
+
+--- a/arch/mips/Kconfig
++++ b/arch/mips/Kconfig
+@@ -406,6 +406,7 @@ config ECONET
+ 	select SYS_SUPPORTS_32BIT_KERNEL
+ 	select SYS_SUPPORTS_MIPS16
+ 	select SYS_SUPPORTS_ZBOOT_UART16550
++	select UHI_BOOT
+ 	select USE_GENERIC_EARLY_PRINTK_8250
+ 	select USE_OF
+ 	help

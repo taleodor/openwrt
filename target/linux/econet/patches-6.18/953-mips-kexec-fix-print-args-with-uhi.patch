@@ -1,0 +1,22 @@
+From: OpenWrt R18 port
+Subject: MIPS: kexec: don't walk argv when booting via UHI
+
+With UHI_BOOT, kexec_args[0] is -2 and kexec_args[1] points to the FDT,
+not to an argv array. machine_kexec_print_args() casts argc to unsigned
+long and walks ~4G "argv" entries, oopsing in printk right before the
+jump to the new kernel.
+
+--- a/arch/mips/kernel/machine_kexec.c
++++ b/arch/mips/kernel/machine_kexec.c
+@@ -38,6 +38,11 @@ static void machine_kexec_print_args(voi
+ 	pr_info("kexec_args[2] (env ): %p\n", (void *)kexec_args[2]);
+ 	pr_info("kexec_args[3] (desc): %p\n", (void *)kexec_args[3]);
+ 
++	if ((int)kexec_args[0] < 0 || argc > KEXEC_MAX_ARGC) {
++		pr_info("kexec: UHI boot, fdt at %p\n", (void *)kexec_args[1]);
++		return;
++	}
++
+ 	for (i = 0; i < argc; i++) {
+ 		pr_info("kexec_argv[%d] = %p, %s\n",
+ 				i, kexec_argv[i], kexec_argv[i]);

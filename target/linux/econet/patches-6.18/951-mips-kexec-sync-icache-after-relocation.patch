@@ -1,0 +1,89 @@
+From: OpenWrt R18 port
+Subject: MIPS: kexec: sync I-cache over relocated pages before jumping
+
+relocate_kernel.S copies the new image word by word through KSEG0 and
+then jumps to it after a bare `sync`. On MIPS32r2+ cores without coherent
+I-caches (e.g. 1004Kc on EcoNet EN7528) the new kernel usually overlaps
+the old one at 0x81000000, so the CPU fetches stale I-cache lines / data
+not yet written back from the D-cache and dies silently. Use synci over
+every copied page and jr.hb to the entry point.
+
+Also print 'K' (relocation start) and 'J' (jump) to the EcoNet UART for
+debugging.
+
+--- a/arch/mips/kernel/relocate_kernel.S
++++ b/arch/mips/kernel/relocate_kernel.S
+@@ -14,7 +14,18 @@
+ 
+ #include <kernel-entry-init.h>
+ 
++#ifdef CONFIG_ECONET
++/* debug: raw byte to the EN75xx UART THR (KSEG1, little-endian byte 0) */
++#define KEXEC_DBG_CHAR(c)		\
++	li	t8, 0xbfbf0000;		\
++	li	t9, c;			\
++	sb	t9, 0(t8)
++#else
++#define KEXEC_DBG_CHAR(c)
++#endif
++
+ LEAF(kexec_relocate_new_kernel)
++	KEXEC_DBG_CHAR(0x4b)	/* 'K' */
+ 	PTR_L a0,	arg0
+ 	PTR_L a1,	arg1
+ 	PTR_L a2,	arg2
+@@ -57,6 +68,7 @@
+ 	beq		s3, zero, process_entry
+ 	and		s2, s2, ~0x8
+ 	li		s6, (1 << _PAGE_SHIFT) / SZREG
++	move		s7, s4		/* page start, for I-cache sync */
+ 
+ copy_word:
+ 	/* copy page word by word */
+@@ -65,9 +77,28 @@
+ 	PTR_ADDIU	s4, s4, SZREG
+ 	PTR_ADDIU	s2, s2, SZREG
+ 	LONG_ADDIU	s6, s6, -1
+-	beq		s6, zero, process_entry
++	beq		s6, zero, sync_page
+ 	b		copy_word
+ 
++sync_page:
++#if defined(CONFIG_CPU_MIPSR2) || defined(CONFIG_CPU_MIPSR5) || defined(CONFIG_CPU_MIPSR6)
++	/*
++	 * The page was written through the D-cache. Write it back and
++	 * invalidate the I-cache over it, otherwise the CPU may execute
++	 * stale lines of the old kernel at the same address.
++	 */
++	.set	push
++	.set	MIPS_ISA_LEVEL_RAW
++	rdhwr		s5, $1		/* SYNCI_Step */
++	beqz		s5, process_entry
++2:	synci		0(s7)
++	PTR_ADDU	s7, s7, s5
++	sltu		s3, s7, s4
++	bnez		s3, 2b
++	.set	pop
++#endif
++	b		process_entry
++
+ done:
+ #ifdef CONFIG_SMP
+ 	/* kexec_flag reset is signal to other CPUs what kernel
+@@ -96,8 +127,16 @@
+ #else
+ 	sync
+ #endif
++	KEXEC_DBG_CHAR(0x4a)	/* 'J' */
+ 	/* jump to kexec_start_address */
++#if defined(CONFIG_CPU_MIPSR2) || defined(CONFIG_CPU_MIPSR5) || defined(CONFIG_CPU_MIPSR6)
++	.set	push
++	.set	MIPS_ISA_LEVEL_RAW
++	jr.hb		s1
++	.set	pop
++#else
+ 	j		s1
++#endif
+ 	END(kexec_relocate_new_kernel)
+ 
+ #ifdef CONFIG_SMP

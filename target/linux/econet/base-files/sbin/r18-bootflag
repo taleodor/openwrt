@@ -1,0 +1,30 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0
+# D-Link R18 boot-slot flags (benv). Slot 0 = OpenWrt (tclinux), slot 1 = recovery (tclinux_slave).
+
+. /lib/functions.sh
+. /lib/upgrade/r18_bootflag.sh
+
+[ "$(board_name)" = "dlink,r18" ] || { echo "not a D-Link R18" >&2; exit 1; }
+
+case "$1" in
+show|"")
+	r18_bootflag_show ;;
+get)
+	r18_bootflag_get "$2" ;;
+set)
+	shift; r18_bootflag_set "$@" && r18_bootflag_show ;;
+confirm)
+	# make the running slot A the default (no-op if already)
+	[ "$(r18_bootflag_get sw_curboot_id)" = 0 ] || { echo "not booted from slot 0" >&2; exit 1; }
+	r18_bootflag_set sw_commit=0 sw_active=0 && r18_bootflag_show ;;
+try-recovery)
+	# boot the recovery in slot B once; the next reboot returns to the committed slot
+	r18_bootflag_set sw_tryactive=2 && r18_bootflag_show ;;
+arm-upgrade)
+	# try slot A once; unless it confirms, the next boot goes to the recovery in slot B
+	r18_bootflag_set sw_commit=1 sw_tryactive=1 && r18_bootflag_show ;;
+*)
+	echo "usage: $0 show|get <name>|set name=value...|confirm|try-recovery|arm-upgrade" >&2
+	exit 1 ;;
+esac

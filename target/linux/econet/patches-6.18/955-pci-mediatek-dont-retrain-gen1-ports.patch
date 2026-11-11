@@ -1,0 +1,23 @@
+From: OpenWrt R18 port
+Subject: PCI: mediatek: don't retrain ports limited to Gen1
+
+EN7528 RC0 has a Gen1-only PHY. Retraining it when a Gen2-capable
+endpoint is attached (MT7915 second host interface, 14c3:7916) leaves the
+link up and config space working, but every MMIO read to the endpoint
+then stalls the bus and hangs the SoC. Stock firmware only retrains RC1.
+
+Skip mtk_pcie_retrain() for ports whose device tree node limits them to
+Gen1 with the standard max-link-speed property.
+
+--- a/drivers/pci/controller/pcie-mediatek.c
++++ b/drivers/pci/controller/pcie-mediatek.c
+@@ -1317,7 +1317,8 @@ static int mtk_pcie_probe(struct platfor
+ 	 * Ignore error because pci_host_probe() was already called, and in any
+ 	 * case it is possible that the port will still work as Gen1.
+ 	 */
+-	if (pcie->soc->quirks & MTK_PCIE_RETRAIN)
++	if ((pcie->soc->quirks & MTK_PCIE_RETRAIN) &&
++	    of_pci_get_max_link_speed(dev->of_node) != 1)
+ 		mtk_pcie_retrain(dev, host);
+ 
+ 	return 0;

@@ -57,3 +57,25 @@ define Device/jiofiber_jcow407
   DEVICE_DTS := en7528_jiofiber_jcow407
 endef
 TARGET_DEVICES += jiofiber_jcow407
+
+define Device/dlink_r18
+  $(call Device/tclinux-ubi)
+  DEVICE_VENDOR := D-Link
+  DEVICE_MODEL := R18
+  DEVICE_ALT0_VENDOR := D-Link
+  DEVICE_ALT0_MODEL := EAGLE PRO AI AX1800
+  DEVICE_DTS := en7528_dlink_r18
+  # "free bootbase" bootloader decompresses to 0x80002000 (stock log)
+  TRX_LOADADDR := 0x80002000
+  KERNEL := kernel-bin | append-dtb | tclinux-free-bootbase-jump | lzma | \
+    kernel-trx
+  # Slot A kernel area is 8 MiB (not 4): the bootloader derives the read size
+  # for BOTH slots from slot A's kernel length (A-length bug), and slot B will
+  # hold an OpenWrt recovery initramfs larger than 4 MiB.
+  KERNEL_SIZE := 8192k
+  TRX_PAD := 8388608
+  # tclinux.trx is written into slot A (tclinux, 45 MiB)
+  FACTORY_SIZE := 45m
+  DEVICE_PACKAGES := kmod-mt7915e kmod-mt7915-firmware
+endef
+TARGET_DEVICES += dlink_r18

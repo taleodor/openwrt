@@ -1,0 +1,27 @@
+#!/bin/sh /etc/rc.common
+# SPDX-License-Identifier: GPL-2.0
+# D-Link R18: after a successful boot of slot A, mark it known-good in the bootloader
+# flags (sw_commit=0). Until then a failed boot of a freshly upgraded slot A falls
+# back to the recovery image in slot B. Disable with: touch /etc/r18-bootconfirm.disable
+
+START=99
+
+boot() {
+	. /lib/functions.sh
+	[ "$(board_name)" = "dlink,r18" ] || return 0
+	(
+		sleep 60
+		[ -f /etc/r18-bootconfirm.disable ] && { logger -t r18-bootconfirm "disabled, not confirming"; exit 0; }
+		. /lib/upgrade/r18_bootflag.sh
+		cur=$(r18_bootflag_get sw_curboot_id)
+		commit=$(r18_bootflag_get sw_commit)
+		active=$(r18_bootflag_get sw_active)
+		[ "$cur" = 0 ] || exit 0
+		[ "$commit" = 0 ] && [ "$active" = 0 ] && exit 0
+		if r18_bootflag_set sw_commit=0 sw_active=0; then
+			logger -t r18-bootconfirm "slot A confirmed (was commit=$commit active=$active)"
+		else
+			logger -t r18-bootconfirm "FAILED to confirm slot A"
+		fi
+	) &
+}

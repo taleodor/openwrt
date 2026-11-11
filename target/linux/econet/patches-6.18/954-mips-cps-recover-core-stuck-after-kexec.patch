@@ -1,0 +1,55 @@
+From: OpenWrt R18 port
+Subject: MIPS: smp-cps: try to recover a core that doesn't reach U6, don't hang
+
+After kexec the previous kernel only halts the TCs of non-boot cores, so
+a secondary core is still powered and coherent when the new kernel issues
+CPC_Cx_CMD_RESET. On EN7528 the CPC then parks the core in D3 and
+boot_core() spins forever printing "Waiting for core 1 to start".
+
+Escalate (PWRUP, then PWRDOWN + RESET), log the sequencer state, and give
+up after a bounded time so boot continues with the CPUs that did start.
+
+--- a/arch/mips/kernel/smp-cps.c
++++ b/arch/mips/kernel/smp-cps.c
+@@ -473,7 +473,7 @@ static void boot_core(unsigned int clust
+ {
+ 	struct cluster_boot_config *cluster_cfg;
+ 	u32 access, stat, seq_state;
+-	unsigned int timeout, ncores;
++	unsigned int timeout, ncores, tries = 0;
+ 
+ 	cluster_cfg = &mips_cps_cluster_bootcfg[cluster];
+ 	ncores = mips_cps_numcores(cluster);
+@@ -580,6 +580,32 @@ static void boot_core(unsigned int clust
+ 
+ 			pr_warn("Waiting for core %u to start... STAT_CONF=0x%x\n",
+ 				core, stat);
++
++			switch (++tries) {
++			case 2:
++				pr_warn("core %u: seq_state %u, sending PWRUP\n",
++					core, seq_state);
++				write_cpc_co_cmd(CPC_Cx_CMD_PWRUP);
++				break;
++			case 4:
++				pr_warn("core %u: seq_state %u, sending PWRDOWN\n",
++					core, seq_state);
++				write_cpc_co_cmd(CPC_Cx_CMD_PWRDOWN);
++				mdelay(100);
++				pr_warn("core %u: after PWRDOWN STAT_CONF=0x%x, sending RESET\n",
++					core, read_cpc_co_stat_conf());
++				write_cpc_co_cmd(CPC_Cx_CMD_RESET);
++				break;
++			case 7:
++				pr_warn("core %u: seq_state %u, sending RESET again\n",
++					core, seq_state);
++				write_cpc_co_cmd(CPC_Cx_CMD_RESET);
++				break;
++			}
++			if (tries >= 10) {
++				pr_err("core %u: giving up\n", core);
++				break;
++			}
+ 			mdelay(1000);
+ 		}
+ 

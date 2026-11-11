@@ -1,0 +1,21 @@
+From: OpenWrt R18 port
+Subject: MIPS: kexec: don't trip hardened usercopy on kexec_argv_buf
+
+kexec_argv_buf lives in .text (relocate_kernel.S) so it can be copied
+together with the relocation code. copy_from_user() into it is rejected
+by CONFIG_HARDENED_USERCOPY ("Kernel memory overwrite attempt detected
+to kernel text") and BUG()s on every `kexec -l`. The destination is a
+fixed, correctly sized buffer and size is bounded above, so use
+raw_copy_from_user() which skips the object check.
+
+--- a/arch/mips/kernel/machine_kexec.c
++++ b/arch/mips/kernel/machine_kexec.c
+@@ -75,7 +75,7 @@ static void machine_kexec_init_argv(struct kimage *image)
+ 		pr_warn("kexec command line truncated to %zd bytes\n", size);
+ 
+ 	/* Copy to kernel space */
+-	if (copy_from_user(kexec_argv_buf, buf, size))
++	if (raw_copy_from_user(kexec_argv_buf, buf, size))
+ 		pr_warn("kexec command line copy to kernel space failed\n");
+ 
+ 	kexec_argv_buf[size - 1] = 0;
